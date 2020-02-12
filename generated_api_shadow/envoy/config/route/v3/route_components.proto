@@ -825,57 +825,39 @@ message RouteAction {
   //
   // * The path pattern ^/service/([^/]+)(/.*)$ paired with a substitution
   //   string of *\2/instance/\1* would transform */service/foo/v1/api* into
-  //   */v1/api/instance/foo*.  Note that the FULL_MATCH flag could be used
-  //   instead of anchoring the beginning of the match with ^ and the end with $.
+  //   */v1/api/instance/foo*.
   //
-  // * The pattern *first* paired with a substitution string of *second*, and
-  //   the flag REPLACE_ALL would transform */xxx/first/yyy/first/zzz* into
-  //   */xxx/second/yyy/second/zzz*.
+  // * The pattern *first* paired with a substitution string of *second* would
+  //   transform */xxx/first/yyy/first/zzz* into */xxx/second/yyy/second/zzz*.
+  //
+  // * The pattern ^(.*?)first(.*)$ paired with a substitution string of
+  //   *\1second\2* would replace only the first occurrence of "first",
+  //   transforming path */xxx/first/yyy/first/zzz* into */xxx/second/yyy/first/zzz*.
+  //
+  // * The pattern (?i)/xxx/ paired with a substitution string of /yyy/ would
+  //   do a case-insensitive match and transform path /aaa/XxX/bbb to /aaa/yyy/bbb.
   RegexRewrite regex_rewrite = 32;
 
   message RegexRewrite {
     option (udpa.annotations.versioning).previous_message_type =
         "envoy.api.v2.route.RouteAction.RegexRewrite";
 
-    // Flags to modify the matching behavior.
-    enum RegexRewriteFlags {
-      // Perform a case-insensitive search/match instead of the default, which
-      // is a case-sensitive search/match.
-      CASE_INSENSITIVE = 0;
-
-      // Replace all occurrences of the pattern in the path, instead of just
-      // the first.  The default is to replace just the first occurrence of the
-      // pattern.
-      REPLACE_ALL = 1;
-
-      // Require that the pattern fully match the path (excluding the query
-      // parameters) before doing any substitution.  The default is to allow
-      // the pattern to match only a portion of the path (excluding the
-      // query parameters).
-      FULL_MATCH = 2;
-    }
-
     // The regular expression used to find portions of the path (excluding
-    // query parameters) that should be replaced.  By default, the first match
-    // in the path is replaced by the substitution string.  The REPLACE_ALL
-    // flag can be used to indicate that all non-overlapping matches should be
-    // replaced.  Additionally, the FULL_MATCH flag can be specified to
-    // indicate that no substitution should take place unless the pattern
-    // matches the entire path.  Capture groups can be used in the pattern to
-    // extract portions of the path, and referenced in the substitution string.
+    // query parameters) that should be replaced.  All matches in the path are
+    // replaced by the substitution string, though anchors in the regular
+    // expression can be used to replace just one occurrence of a pattern.
+    // Capture groups can be used in the pattern to extract portions of the
+    // path, and referenced in the substitution string.
     type.matcher.v3.RegexMatcher pattern = 1;
-
-    // Zero or more flags can be specified to customize the matching behavior.
-    repeated RegexRewriteFlags flags = 2;
 
     // The string that should be substituted into matching portions of the path.
     // Capture groups in the pattern can be referenced in this string  Beware,
     // however, that the syntax for referring to capture groups might vary
     // among the regular expression engines.  Google's `RE2 <https://github.com/google/re2>`_
     // regular expression engine uses backslash followed by the capture group
-    // number to denote a capture group.  E.g., \1 refers to capture group 1,
-    // and \2 refers to capture group 2.
-    string substitution = 3;
+    // number to denote a numbered capture group.  E.g., \1 refers to capture
+    // group 1, and \2 refers to capture group 2.
+    string substitution = 2;
   }
 
   oneof host_rewrite_specifier {
