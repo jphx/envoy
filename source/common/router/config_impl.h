@@ -467,6 +467,8 @@ public:
 protected:
   const bool case_sensitive_;
   const std::string prefix_rewrite_;
+  Regex::CompiledMatcherPtr regex_rewrite_;
+  std::string regex_rewrite_substitution_;
   const std::string host_rewrite_;
   bool include_vh_rate_limits_;
 
@@ -481,6 +483,8 @@ protected:
 
   void finalizePathHeader(Http::HeaderMap& headers, absl::string_view matched_path,
                           bool insert_envoy_original_path) const;
+
+  absl::string_view pathOnly(const Http::HeaderMap& headers) const;
 
 private:
   struct RuntimeData {
@@ -783,8 +787,6 @@ public:
   void rewritePathHeader(Http::HeaderMap& headers, bool insert_envoy_original_path) const override;
 
 private:
-  absl::string_view pathOnly(const Http::HeaderMap& headers) const;
-
   Regex::CompiledMatcherPtr regex_;
   std::string regex_str_;
 };
