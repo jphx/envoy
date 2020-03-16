@@ -359,38 +359,48 @@ std::pair<T, std::vector<Network::Address::CidrRange>> makeCidrListEntry(const s
 
 const Network::FilterChain*
 FilterChainManagerImpl::findFilterChain(const Network::ConnectionSocket& socket) const {
+  ENVOY_LOG(debug, "findFilterChain(socket)");
   const auto& address = socket.localAddress();
 
   // Match on destination port (only for IP addresses).
   if (address->type() == Network::Address::Type::Ip) {
+    ENVOY_LOG(debug, "findFilterChain(socket): socket address type [IP] port [" + std::to_string(address->ip()->port()) + "]");
     const auto port_match = destination_ports_map_.find(address->ip()->port());
     if (port_match != destination_ports_map_.end()) {
+      ENVOY_LOG(debug, "findFilterChain(socket): port [" + std::to_string(address->ip()->port()) + "] found in destination_ports_map_");
       return findFilterChainForDestinationIP(*port_match->second.second, socket);
     }
+    ENVOY_LOG(debug, "findFilterChain(socket): port [" + std::to_string(address->ip()->port()) + "] NOT found in destination_ports_map_");
   }
 
   // Match on catch-all port 0.
   const auto port_match = destination_ports_map_.find(0);
   if (port_match != destination_ports_map_.end()) {
+    ENVOY_LOG(debug, "findFilterChain(socket): catch all port found in destination_ports_map_");
     return findFilterChainForDestinationIP(*port_match->second.second, socket);
   }
+  ENVOY_LOG(debug, "findFilterChain(socket): catch all port NOT found in destination_ports_map_");
 
   return nullptr;
 }
 
 const Network::FilterChain* FilterChainManagerImpl::findFilterChainForDestinationIP(
     const DestinationIPsTrie& destination_ips_trie, const Network::ConnectionSocket& socket) const {
+  ENVOY_LOG(debug, "findFilterChainForDestinationIP()");
   auto address = socket.localAddress();
   if (address->type() != Network::Address::Type::Ip) {
+    ENVOY_LOG(debug, "findFilterChainForDestinationIP(): Using fake address");
     address = fakeAddress();
   }
 
   // Match on both: exact IP and wider CIDR ranges using LcTrie.
   const auto& data = destination_ips_trie.getData(address);
   if (!data.empty()) {
+    ENVOY_LOG(debug, "findFilterChainForDestinationIP(): Matched on exact IP and CIDR");
     ASSERT(data.size() == 1);
     return findFilterChainForServerName(*data.back(), socket);
   }
+  ENVOY_LOG(debug, "findFilterChainForDestinationIP(): Did NOT match on exact IP and CIDR");
 
   return nullptr;
 }
@@ -398,29 +408,38 @@ const Network::FilterChain* FilterChainManagerImpl::findFilterChainForDestinatio
 const Network::FilterChain* FilterChainManagerImpl::findFilterChainForServerName(
     const ServerNamesMap& server_names_map, const Network::ConnectionSocket& socket) const {
   const std::string server_name(socket.requestedServerName());
+  ENVOY_LOG(debug, "findFilterChainForServerName(): server name [" + server_name + "]");
 
   // Match on exact server name, i.e. "www.example.com" for "www.example.com".
   const auto server_name_exact_match = server_names_map.find(server_name);
   if (server_name_exact_match != server_names_map.end()) {
+    ENVOY_LOG(debug, "findFilterChainForServerName(): server name [" + server_name + "] - matched on exact server name");
     return findFilterChainForTransportProtocol(server_name_exact_match->second, socket);
   }
+  ENVOY_LOG(debug, "findFilterChainForServerName(): server name [" + server_name + "] - did NOT on exact server name");
 
   // Match on all wildcard domains, i.e. ".example.com" and ".com" for "www.example.com".
   size_t pos = server_name.find('.', 1);
   while (pos < server_name.size() - 1 && pos != std::string::npos) {
     const std::string wildcard = server_name.substr(pos);
+    ENVOY_LOG(debug, "findFilterChainForServerName(): server name [" + server_name + "] - search on wildcard [" + wildcard + "]");
     const auto server_name_wildcard_match = server_names_map.find(wildcard);
     if (server_name_wildcard_match != server_names_map.end()) {
+      ENVOY_LOG(debug, "findFilterChainForServerName(): server name [" + server_name + "] - matched on wildcard [" + wildcard + "]");
       return findFilterChainForTransportProtocol(server_name_wildcard_match->second, socket);
     }
+
+    ENVOY_LOG(debug, "findFilterChainForServerName(): server name [" + server_name + "] - did NOT match on wildcard [" + wildcard + "]");
     pos = server_name.find('.', pos + 1);
   }
 
   // Match on a filter chain without server name requirements.
   const auto server_name_catchall_match = server_names_map.find(EMPTY_STRING);
   if (server_name_catchall_match != server_names_map.end()) {
+    ENVOY_LOG(debug, "findFilterChainForServerName(): matched on catch all (filter chain w/o server name requirements)");
     return findFilterChainForTransportProtocol(server_name_catchall_match->second, socket);
   }
+  ENVOY_LOG(debug, "findFilterChainForServerName(): did NOT match on anything!");
 
   return nullptr;
 }
@@ -429,18 +448,23 @@ const Network::FilterChain* FilterChainManagerImpl::findFilterChainForTransportP
     const TransportProtocolsMap& transport_protocols_map,
     const Network::ConnectionSocket& socket) const {
   const std::string transport_protocol(socket.detectedTransportProtocol());
+  ENVOY_LOG(debug, "findFilterChainForTransportProtocol(): transport protocol [" + transport_protocol + "]");
 
   // Match on exact transport protocol, e.g. "tls".
   const auto transport_protocol_match = transport_protocols_map.find(transport_protocol);
   if (transport_protocol_match != transport_protocols_map.end()) {
+    ENVOY_LOG(debug, "findFilterChainForTransportProtocol(): matched on transport protocol [" + transport_protocol + "]");
     return findFilterChainForApplicationProtocols(transport_protocol_match->second, socket);
   }
+  ENVOY_LOG(debug, "findFilterChainForTransportProtocol(): did NOT match on transport protocol [" + transport_protocol + "]");
 
   // Match on a filter chain without transport protocol requirements.
   const auto any_protocol_match = transport_protocols_map.find(EMPTY_STRING);
   if (any_protocol_match != transport_protocols_map.end()) {
+    ENVOY_LOG(debug, "findFilterChainForTransportProtocol(): matching application protocols...");
     return findFilterChainForApplicationProtocols(any_protocol_match->second, socket);
   }
+  ENVOY_LOG(debug, "findFilterChainForTransportProtocol(): did NOT match on anything!");
 
   return nullptr;
 }
@@ -450,17 +474,22 @@ const Network::FilterChain* FilterChainManagerImpl::findFilterChainForApplicatio
     const Network::ConnectionSocket& socket) const {
   // Match on exact application protocol, e.g. "h2" or "http/1.1".
   for (const auto& application_protocol : socket.requestedApplicationProtocols()) {
+    ENVOY_LOG(debug, "findFilterChainForApplicationProtocols(): application protocol [" + application_protocol + "]");
     const auto application_protocol_match = application_protocols_map.find(application_protocol);
     if (application_protocol_match != application_protocols_map.end()) {
+      ENVOY_LOG(debug, "findFilterChainForApplicationProtocols(): matched on application protocol [" + application_protocol + "]");
       return findFilterChainForSourceTypes(application_protocol_match->second, socket);
     }
+    ENVOY_LOG(debug, "findFilterChainForApplicationProtocols(): did NOT match on application protocol [" + application_protocol + "]");
   }
 
   // Match on a filter chain without application protocol requirements.
   const auto any_protocol_match = application_protocols_map.find(EMPTY_STRING);
   if (any_protocol_match != application_protocols_map.end()) {
+    ENVOY_LOG(debug, "findFilterChainForApplicationProtocols(): matching source types...");
     return findFilterChainForSourceTypes(any_protocol_match->second, socket);
   }
+  ENVOY_LOG(debug, "findFilterChainForApplicationProtocols(): did NOT match on anything!");
 
   return nullptr;
 }
@@ -480,12 +509,16 @@ const Network::FilterChain* FilterChainManagerImpl::findFilterChainForSourceType
           ? Network::Utility::isSameIpOrLoopback(socket)
           : false;
 
+  ENVOY_LOG(debug, "findFilterChainForSourceTypes() is_local_connection [" + std::to_string(is_local_connection) + "]");
+
   if (is_local_connection) {
     if (!filter_chain_local.first.empty()) {
+      ENVOY_LOG(debug, "findFilterChainForSourceTypes() is_local_connection [" + std::to_string(is_local_connection) + "] - checking filter_chain_local source IP and port");
       return findFilterChainForSourceIpAndPort(*filter_chain_local.second, socket);
     }
   } else {
     if (!filter_chain_external.first.empty()) {
+      ENVOY_LOG(debug, "findFilterChainForSourceTypes() is_local_connection [" + std::to_string(is_local_connection) + "] - checking filter_chain_external source IP and port");
       return findFilterChainForSourceIpAndPort(*filter_chain_external.second, socket);
     }
   }
@@ -493,24 +526,30 @@ const Network::FilterChain* FilterChainManagerImpl::findFilterChainForSourceType
   const auto& filter_chain_any = source_types[envoy::config::listener::v3::FilterChainMatch::ANY];
 
   if (!filter_chain_any.first.empty()) {
+    ENVOY_LOG(debug, "findFilterChainForSourceTypes() is_local_connection [" + std::to_string(is_local_connection) + "] - checking filter_chain_any source IP and port");
     return findFilterChainForSourceIpAndPort(*filter_chain_any.second, socket);
   } else {
+    ENVOY_LOG(debug, "findFilterChainForSourceTypes(): did NOT match on anything!");
     return nullptr;
   }
 }
 
 const Network::FilterChain* FilterChainManagerImpl::findFilterChainForSourceIpAndPort(
     const SourceIPsTrie& source_ips_trie, const Network::ConnectionSocket& socket) const {
+  ENVOY_LOG(debug, "findFilterChainForSourceIpAndPort()");
   auto address = socket.remoteAddress();
   if (address->type() != Network::Address::Type::Ip) {
     address = fakeAddress();
   }
+  ENVOY_LOG(debug, "findFilterChainForSourceIpAndPort() address [" + address->asString() + "]");
 
   // Match on both: exact IP and wider CIDR ranges using LcTrie.
   const auto& data = source_ips_trie.getData(address);
   if (data.empty()) {
+    ENVOY_LOG(debug, "findFilterChainForSourceIpAndPort() address [" + address->asString() + "] did NOT match on exact IP and CIDR");
     return nullptr;
   }
+  ENVOY_LOG(debug, "findFilterChainForSourceIpAndPort() address [" + address->asString() + "] did match on exact IP and CIDR");
 
   ASSERT(data.size() == 1);
   const auto& source_ports_map = *data.back();
@@ -519,13 +558,16 @@ const Network::FilterChain* FilterChainManagerImpl::findFilterChainForSourceIpAn
 
   // Did we get a direct hit on port.
   if (port_match != source_ports_map.end()) {
+    ENVOY_LOG(debug, "findFilterChainForSourceIpAndPort() address [" + address->asString() + "] matched on port [" + std::to_string(source_port) + "]");
     return port_match->second.get();
   }
+  ENVOY_LOG(debug, "findFilterChainForSourceIpAndPort() address [" + address->asString() + "] did NOT get a match on port [" + std::to_string(source_port) + "]");
 
   // Try port 0 if we didn't already try it (UDS).
   if (source_port != 0) {
     const auto any_match = source_ports_map.find(0);
     if (any_match != source_ports_map.end()) {
+      ENVOY_LOG(debug, "findFilterChainForSourceIpAndPort() address [" + address->asString() + "] matched on port 0??");
       return any_match->second.get();
     }
   }

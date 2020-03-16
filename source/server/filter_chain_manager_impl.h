@@ -19,6 +19,8 @@
 
 #include "absl/container/flat_hash_map.h"
 
+#include "spdlog/spdlog.h"
+
 namespace Envoy {
 namespace Server {
 
